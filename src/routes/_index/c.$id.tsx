@@ -6,7 +6,7 @@ export const Route = createFileRoute('/_index/c/$id')({
 })
 
 function ConversationComponent() {
-  const { id } = useParams({ from: '/_index/c/$id' })
+  const { id: conversationId } = useParams({ from: '/_index/c/$id' })
 
-  return <Chat conversationId={id} />
+  return <Chat conversationId={conversationId} />
 }
