@@ -55,6 +55,12 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
   }, [messagesError])
 
   useEffect(() => {
+    if (!isLoading) {
+      textareaRef.current?.focus() // This will focus the input again when loading is finished
+    }
+  }, [isLoading])
+
+  useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
@@ -118,14 +124,14 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
           `conversation-${convoId}`,
           JSON.stringify(updated),
         )
-        setIsLoading(false)
+        setIsLoading(false) // Make sure this line is being called
       },
       onError: (e) => {
         toast.error(`Stream failed: ${e.message}`, {
           action: { label: 'Retry', onClick: handleRetry },
         })
         if (!isRetry) setMessages((prev) => prev.slice(0, -1))
-        setIsLoading(false)
+        setIsLoading(false) // Make sure this line is being called
       },
     })
   }
@@ -201,7 +207,7 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    disabled={isLoading}
+                    disabled={isStreaming} // This will disable the input when loading is true
                   />
                   <img
                     src="/mic-01.svg"
