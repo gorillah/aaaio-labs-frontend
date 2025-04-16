@@ -28,7 +28,7 @@ export function useChatStream() {
         setStreamedText('')
         const res = await fetch(
           conversationId
-            ? `http://localhost:8080/api/v1/llm/chat/${conversationId}`
+            ? `http://localhost:8080/api/v1/llm/chat/${conversationId}` // Corrected with backticks
             : 'http://localhost:8080/api/v1/llm/chat/new',
           {
             method: 'POST',

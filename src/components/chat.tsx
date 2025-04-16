@@ -32,15 +32,15 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
   }
 
   useEffect(() => {
-    chatRef.current?.scrollTo({
-      top: chatRef.current.scrollHeight,
-      behavior: 'smooth',
-    })
+    if (chatRef.current) {
+      chatRef.current.scrollTop = chatRef.current.scrollHeight
+    }
   }, [messages, streamedText])
 
   return (
-    <div className="flex flex-col flex-1">
-      <div ref={chatRef} className="flex-1 overflow-y-auto space-y-4 p-4">
+    <div className="flex flex-col h-full">
+      {/* Messages container with overflow-y-auto for scrolling */}
+      <div ref={chatRef} className="flex-1 space-y-4 p-4 overflow-y-auto">
         {messages.map((msg, i) => (
           <MessageItem key={i} message={msg} />
         ))}

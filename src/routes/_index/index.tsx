@@ -12,7 +12,7 @@ function IndexRoute() {
   const [activeTab, setActiveTab] = useState('chat')
 
   return (
-    <div className="flex flex-col flex-1">
+    <div className="flex flex-col h-screen w-full">
       <nav className="h-[60px] flex justify-center items-center gap-x-2 border-b border-white/10">
         {['Search', 'Chat', 'Research'].map((label) => (
           <NavButton
@@ -23,7 +23,9 @@ function IndexRoute() {
           />
         ))}
       </nav>
-      <Chat />
+      <div className="flex-1 overflow-hidden">
+        <Chat />
+      </div>
     </div>
   )
 }
