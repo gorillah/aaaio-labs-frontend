@@ -1,3 +1,4 @@
+import { useChatStream } from '@/hooks/use-chat-stream'
 import {
   conversationMessagesQueryOptions,
   deviceTokenQueryOptions,
@@ -24,11 +25,9 @@ export type Message = {
 
 const formatToMarkdown = (text: string): string => {
   let formatted = text.trim()
-
   formatted = formatted.replace(/\*\*\s*Title\s*:\s*(.*?)\s*\*\*/gi, '# $1')
   formatted = formatted.replace(/([a-zA-Z0-9])([.!?])\s+(?=[A-Z])/g, '$1$2\n\n')
   formatted = formatted.replace(/\s{2,}/g, ' ')
-
   return formatted
 }
 
@@ -42,17 +41,16 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
   const [activeTab, setActiveTab] = useState('chat')
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
-  const [streamedResponse, setStreamedResponse] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [retryCount, setRetryCount] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
+  const { streamedText, isStreaming, startStream } = useChatStream()
+
   useEffect(() => {
     if (messagesError) {
-      toast.error(
-        'Failed to load conversation history. Please try again later.',
-      )
+      toast.error('Failed to load conversation history.')
     }
   }, [messagesError])
 
@@ -60,165 +58,76 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight
     }
-  }, [messages, streamedResponse])
+  }, [messages, streamedText])
 
   useEffect(() => {
-    if (
-      conversationId &&
-      conversationMessages &&
-      conversationMessages.length > 0
-    ) {
+    if (conversationMessages && conversationMessages.length > 0) {
       const sortedMessages = [...conversationMessages]
-        .sort((a, b) => {
-          if (!a.created_at || !b.created_at) return 0
-          return (
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-          )
-        })
+        .sort(
+          (a, b) =>
+            new Date(a.created_at!).getTime() -
+            new Date(b.created_at!).getTime(),
+        )
         .slice(-20)
       setMessages(sortedMessages)
     }
-  }, [conversationId, conversationMessages])
+  }, [conversationMessages])
 
   const handleRetry = () => {
     if (retryCount < 3) {
       setRetryCount((prev) => prev + 1)
       sendMessage(true)
-      toast.info('Retrying your request...')
     } else {
-      toast.error('Too many retry attempts. Please try again later.')
+      toast.error('Too many retry attempts.')
       setRetryCount(0)
     }
   }
 
   const sendMessage = async (isRetry = false) => {
-    if (!input.trim() && !isRetry) return
     const currentInput = input.trim()
+    if (!currentInput && !isRetry) return
+
+    const updatedMessages = isRetry
+      ? [...messages]
+      : [...messages, { role: 'user', content: currentInput }]
 
     if (!isRetry) {
-      const userMessage: Message = { role: 'user', content: currentInput }
-      const updatedMessages = [...messages, userMessage]
       setMessages(updatedMessages)
       setInput('')
-      setStreamedResponse('')
     }
 
     setIsLoading(true)
 
-    const endpoint = conversationId
-      ? `http://localhost:8080/api/v1/llm/chat/${conversationId}`
-      : 'http://localhost:8080/api/v1/llm/chat/new'
+    await startStream({
+      messages: updatedMessages,
+      deviceToken,
+      conversationId,
+      onFinish: (finalText) => {
+        const markdown = formatToMarkdown(finalText)
 
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Device-Token': deviceToken || '',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          stream: true,
-          messages: isRetry
-            ? messages
-            : [...messages, { role: 'user', content: currentInput }],
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(
-          errorData.message || `HTTP error! status: ${response.status}`,
-        )
-      }
-      if (!response.body) throw new Error('No response body')
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder('utf-8')
-      let fullResponse = ''
-      let conversationIdFromStream: string | null = null
-
-      const processChunk = (value: string) => {
-        const lines = value.split('\n').filter((line) => line.trim() !== '')
-
-        for (const line of lines) {
-          if (line.startsWith('event:')) {
-            // Handle conversation_created event
-            const eventType = line.replace('event:', '').trim()
-            if (eventType === 'conversation_created') {
-              // The next line should be the data with conversation_id
-              continue
-            }
-          } else if (line.startsWith('data:')) {
-            try {
-              const jsonStr = line.replace('data:', '').trim()
-              if (jsonStr === '[DONE]') return
-
-              const parsed = JSON.parse(jsonStr)
-
-              if (parsed.conversation_id) {
-                conversationIdFromStream = parsed.conversation_id
-              } else if (parsed.content) {
-                // Clean the content
-                let content = parsed.content
-                if (content.startsWith('data:')) {
-                  content = content.substring(5).trim()
-                }
-
-                // Handle newlines and spaces
-                content = content.replace(/\n\n/g, ' ').replace(/\s+/g, ' ')
-
-                fullResponse += content
-                setStreamedResponse((prev) => prev + content)
-              }
-            } catch (err) {
-              console.warn('SSE parse error:', err, 'on line:', line)
-            }
-          }
-        }
-      }
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value, { stream: true })
-        processChunk(chunk)
-      }
-
-      if (fullResponse) {
-        const markdown = formatToMarkdown(fullResponse)
-        setMessages((prev) => [
-          ...prev,
+        // Ensure role is 'assistant'
+        const updated: Message[] = [
+          ...updatedMessages,
           { role: 'assistant', content: markdown },
-        ])
+        ]
+        setMessages(updated)
         setRetryCount(0)
 
-        if (conversationIdFromStream || conversationId) {
-          const all = isRetry
-            ? [...messages, { role: 'assistant', content: markdown }]
-            : [
-                ...messages,
-                { role: 'user', content: currentInput },
-                { role: 'assistant', content: markdown },
-              ]
-          sessionStorage.setItem(
-            `conversation-${conversationIdFromStream || conversationId}`,
-            JSON.stringify(all),
-          )
-        }
-      }
-    } catch (e) {
-      console.error('Chat error:', e)
-      toast.error(`Failed to send message: ${e.message}`, {
-        action: { label: 'Retry', onClick: handleRetry },
-      })
-      if (!isRetry) {
-        setMessages((prev) => prev.slice(0, -1))
-      }
-    } finally {
-      setIsLoading(false)
-      setStreamedResponse('')
-    }
+        const convoId = conversationId || 'new'
+        sessionStorage.setItem(
+          `conversation-${convoId}`,
+          JSON.stringify(updated),
+        )
+        setIsLoading(false)
+      },
+      onError: (e) => {
+        toast.error(`Stream failed: ${e.message}`, {
+          action: { label: 'Retry', onClick: handleRetry },
+        })
+        if (!isRetry) setMessages((prev) => prev.slice(0, -1))
+        setIsLoading(false)
+      },
+    })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -228,7 +137,7 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
     }
   }
 
-  const hasContent = messages.length > 0 || streamedResponse || isLoading
+  const hasContent = messages.length > 0 || streamedText || isLoading
 
   return (
     <div className="flex flex-1 bg-black">
@@ -252,14 +161,14 @@ export const Chat = ({ conversationId }: { conversationId?: string }) => {
                   {messages.map((msg, i) => (
                     <MessageItem key={i} message={msg} />
                   ))}
-                  {streamedResponse && (
+                  {streamedText && (
                     <div className="p-4 rounded-lg text-white">
                       <MarkdownMessage
-                        content={formatToMarkdown(streamedResponse)}
+                        content={formatToMarkdown(streamedText)}
                       />
                     </div>
                   )}
-                  {isLoading && !streamedResponse && (
+                  {isLoading && !streamedText && (
                     <div className="flex justify-center my-2">
                       <div className="animate-pulse flex space-x-2">
                         {[...Array(3)].map((_, i) => (

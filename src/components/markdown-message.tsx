@@ -67,3 +67,4 @@ export function MarkdownMessage({ content }: { content: string }) {
     </ReactMarkdown>
   )
 }
+
